@@ -12,7 +12,7 @@ const services = [
     name: "Static CDS Service Example",
     description:
       "An example of a CDS Service that returns a card with SMART app recommendations.",
-    id: "static-patient-view",
+    id: "patient-greeter",
     prefetch: {
       patientToGreet: "Patient/{{context.patientId}}",
     },
