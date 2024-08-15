@@ -2,6 +2,7 @@ var express = require("express");
 var app = express();
 var cors = require("cors");
 var bodyParser = require("body-parser");
+var axios = require("axios");
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -25,31 +26,88 @@ app.get("/cds-services", function (req, res) {
   });
 });
 
-app.post("/cds-services/patient-greeter", function (req, res) {
-  const body = req.body;
-  const patient = body?.prefetch?.patientToGreet;
-  const name = patient?.name?.[0]?.given?.[0];
+function isDataAvailable(patient) {
+  return (
+    patient.name &&
+    patient.name[0] &&
+    patient.name[0].given &&
+    patient.name[0].given[0]
+  );
+}
 
-  res.json({
+function isValidPrefetch(request) {
+  const data = request.body;
+  if (!(data && data.prefetch && data.prefetch.patient)) {
+    return false;
+  }
+  return isDataAvailable(data.prefetch.patient);
+}
+
+function retrievePatientResource(fhirServer, patientId, accessToken) {
+  const headers = { Accept: "application/json+fhir" };
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  return axios({
+    method: "get",
+    url: `${fhirServer}/Patient/${patientId}`,
+    headers,
+  })
+    .then((result) => {
+      console.log("result", result.data);
+      if (result.data && isDataAvailable(result.data)) {
+        return result.data;
+      }
+      throw new Error();
+    })
+    .catch((err) => {
+      // console.log(err);
+    });
+}
+
+function buildCard(patient) {
+  const name = patient.name[0].given[0];
+  return {
     cards: [
       {
-        summary: `Hello ${name}`,
-        indicator: "success",
-        detail: `Hello ${name}`,
+        uuid: "123",
+        summary: `Now seeing: ${name}`,
         source: {
-          label: "Static CDS Service Example",
-          url: "https://example.com",
+          label: "Patient greeting service",
         },
-        links: [
-          {
-            label: "SMART Example App",
-            url: "https://smart.example.com/launch",
-            type: "smart",
-          },
-        ],
+        indicator: "info",
       },
     ],
-  });
+  };
+}
+
+app.post("/cds-services/patient-greeter", function (request, response) {
+  if (!isValidPrefetch(request)) {
+    const { fhirServer, fhirAuthorization } = request.body;
+
+    let patient;
+    if (request.body.context) {
+      patient = request.body.context.patientId;
+    }
+    if (fhirServer && patient) {
+      let accessToken;
+      if (fhirAuthorization && fhirAuthorization.access_token) {
+        accessToken = fhirAuthorization.access_token;
+      }
+      retrievePatientResource(fhirServer, patient, accessToken)
+        .then((result) => {
+          response.json(buildCard(result));
+        })
+        .catch(() => {
+          response.sendStatus(412);
+        });
+      return;
+    }
+    response.sendStatus(412);
+    return;
+  }
+  const resource = request.body.prefetch.patient;
+  response.json(buildCard(resource));
 });
 
 app.listen(3000, function () {
